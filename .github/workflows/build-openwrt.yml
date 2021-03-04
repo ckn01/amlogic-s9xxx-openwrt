@@ -1,659 +1,222 @@
 #========================================================================================================================
 # https://github.com/ophub/amlogic-s9xxx-openwrt
-# Description: Automatically Build OpenWrt for S905x3-Boxs and Phicomm-N1
-# Function: Config info For S905x3-Boxs and Phicomm-N1
+# Description: Automatically Build OpenWrt for S9xxx-Boxs
+# Function: Workflows for Build S9xxx-Boxs
+# Cron: min (0 - 59) / hour (0 - 23) / day of month (1 - 31) / month (1 - 12) / day of week (0 - 6)(Sunday - Saturday)
 # Copyright (C) 2020 https://github.com/P3TERX/Actions-OpenWrt
 # Copyright (C) 2020 https://github.com/ophub/amlogic-s9xxx-openwrt
 #========================================================================================================================
 
-# Build Firmware:
-cat >> .config <<EOF
-CONFIG_TARGET_armvirt=y
-CONFIG_TARGET_armvirt_64=y
-CONFIG_TARGET_armvirt_64_Default=y
-EOF
+name: Build OpenWrt
 
-# Set firmware size:
-CONFIG_TARGET_KERNEL_PARTSIZE=256
-CONFIG_TARGET_ROOTFS_PARTSIZE=1024
+on:
+  repository_dispatch:
+  workflow_dispatch:
+    inputs:
+      ssh:
+        description: 'SSH connection to Actions'
+        required: false
+        default: 'false'
+  schedule:
+    - cron: '0 17 * * *'
 
-# Firmware Type:
-cat >> .config <<EOF
-CONFIG_USES_DEVICETREE=y
-CONFIG_USES_INITRAMFS=y
-CONFIG_USES_SQUASHFS=y
-CONFIG_USES_EXT4=y
-CONFIG_USES_TARGZ=y
-CONFIG_USES_CPIOGZ=y
-CONFIG_TARGET_ROOTFS_EXT4FS=y
-CONFIG_TARGET_ROOTFS_SQUASHFS=y
-CONFIG_TARGET_SQUASHFS_BLOCK_SIZE=256
-CONFIG_TARGET_UBIFS_FREE_SPACE_FIXUP=y
-CONFIG_TARGET_UBIFS_JOURNAL_SIZE=""
-CONFIG_TARGET_IMAGES_GZIP=y
-EOF
+env:
+  REPO_URL: https://github.com/coolsnowwolf/lede
+  REPO_BRANCH: master
+  FEEDS_CONF: router_config/feeds.conf.default
+  CONFIG_FILE: router_config/.config
+  DIY_P1_SH: router_config/diy-part1.sh
+  DIY_P2_SH: router_config/diy-part2.sh
+  UPLOAD_BIN_DIR: false
+  UPLOAD_FIRMWARE: true
+  UPLOAD_RELEASE: true
+  UPLOAD_COWTRANSFER: false
+  UPLOAD_WETRANSFER: false
+  DELETE_RELEASE: true
+  DELETE_ARTIFACTS: true
+  KEEP_DAY: 3
+  KEEP_MININUM_RUNS: 0
+  KEEP_MININUM_RELEASE: 3
+  RECENT_LASTEST: 3
+  TZ: Asia/Shanghai
 
-# Build VMware Firmware:
-cat >> .config <<EOF
-# CONFIG_TARGET_IMAGES_PAD is not set
-# CONFIG_VMDK_IMAGES is not set
-EOF
+jobs:
+  build:
+    runs-on: ubuntu-18.04
+    if: github.event.repository.owner.id == github.event.sender.id
 
-# Build UEFI Firmware:
-cat >> .config <<EOF
-CONFIG_EFI_IMAGES=y
-EOF
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
 
-# For IPv6:
-# cat >> .config <<EOF
-# CONFIG_PACKAGE_dnsmasq_full_dhcpv6=y
-# CONFIG_PACKAGE_ipv6helper=y
-# EOF
+    - name: Initialization environment
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
+        sudo -E apt-get -qq update
+        sudo -E apt-get -qq install $(curl -fsSL git.io/depends-ubuntu-1804)
+        sudo -E apt-get -qq autoremove --purge
+        sudo -E apt-get -qq clean
+        sudo timedatectl set-timezone "$TZ"
+        sudo mkdir -p /workdir
+        sudo chown $USER:$GROUPS /workdir
+        echo "COMPILE_STARTINGTIME=$(date +"%Y.%m.%d.%H%M")" >> $GITHUB_ENV
 
-# National language packs, luci-i18n-base:
-# cat >> .config <<EOF
-# CONFIG_PACKAGE_luci-i18n-base-bg is not set
-# CONFIG_PACKAGE_luci-i18n-base-ca is not set
-# CONFIG_PACKAGE_luci-i18n-base-cs is not set
-# CONFIG_PACKAGE_luci-i18n-base-de is not set
-# CONFIG_PACKAGE_luci-i18n-base-el is not set
-CONFIG_PACKAGE_luci-i18n-base-en=y
-# CONFIG_PACKAGE_luci-i18n-base-es is not set
-# CONFIG_PACKAGE_luci-i18n-base-fr is not set
-# CONFIG_PACKAGE_luci-i18n-base-he is not set
-# CONFIG_PACKAGE_luci-i18n-base-hi is not set
-# CONFIG_PACKAGE_luci-i18n-base-hu is not set
-# CONFIG_PACKAGE_luci-i18n-base-it is not set
-# CONFIG_PACKAGE_luci-i18n-base-ja is not set
-# CONFIG_PACKAGE_luci-i18n-base-ko is not set
-# CONFIG_PACKAGE_luci-i18n-base-ms is not set
-# CONFIG_PACKAGE_luci-i18n-base-no is not set
-# CONFIG_PACKAGE_luci-i18n-base-pl is not set
-# CONFIG_PACKAGE_luci-i18n-base-pt is not set
-# CONFIG_PACKAGE_luci-i18n-base-pt-br is not set
-# CONFIG_PACKAGE_luci-i18n-base-ro is not set
-# CONFIG_PACKAGE_luci-i18n-base-ru is not set
-# CONFIG_PACKAGE_luci-i18n-base-sk is not set
-# CONFIG_PACKAGE_luci-i18n-base-sv is not set
-# CONFIG_PACKAGE_luci-i18n-base-tr is not set
-# CONFIG_PACKAGE_luci-i18n-base-uk is not set
-# CONFIG_PACKAGE_luci-i18n-base-vi is not set
-CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
-# CONFIG_PACKAGE_luci-i18n-base-zh-tw is not set
-EOF
+    - name: Clone source code
+      working-directory: /workdir
+      run: |
+        df -hT $PWD
+        git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
+        ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
-# Firmware:
-cat >> .config <<EOF
-CONFIG_PACKAGE_brcmfmac-firmware-4329-sdio=y
-CONFIG_PACKAGE_brcmfmac-firmware-43362-sdio=y
-CONFIG_PACKAGE_brcmfmac-firmware-43430-sdio=y
-CONFIG_PACKAGE_brcmfmac-firmware-43430-sdio-rpi-3b=y
-CONFIG_PACKAGE_brcmfmac-firmware-43430-sdio-rpi-zero-w=y
-CONFIG_PACKAGE_brcmfmac-firmware-43430a0-sdio=y
-CONFIG_PACKAGE_brcmfmac-firmware-43455-sdio=y
-CONFIG_PACKAGE_brcmfmac-firmware-43455-sdio-rpi-3b-plus=y
-CONFIG_PACKAGE_brcmfmac-firmware-43455-sdio-rpi-4b=y
-CONFIG_PACKAGE_brcmfmac-firmware-usb=y
-CONFIG_PACKAGE_carl9170-firmware=y
-CONFIG_PACKAGE_cypress-firmware-4339-sdio=y
-CONFIG_PACKAGE_edgeport-firmware=y
-CONFIG_PACKAGE_mt7601u-firmware=y
-CONFIG_PACKAGE_p54-usb-firmware=y
-CONFIG_PACKAGE_rs9113-firmware=y
-CONFIG_PACKAGE_rt2800-usb-firmware=y
-CONFIG_PACKAGE_rt73-usb-firmware=y
-CONFIG_PACKAGE_rtl8188eu-firmware=y
-CONFIG_PACKAGE_rtl8192cu-firmware=y
-CONFIG_PACKAGE_rtl8192eu-firmware=y
-CONFIG_PACKAGE_rtl8192su-firmware=y
-CONFIG_PACKAGE_rtl8723au-firmware=y
-CONFIG_PACKAGE_rtl8723bs-firmware=y
-CONFIG_PACKAGE_rtl8723bu-firmware=y
-CONFIG_PACKAGE_wireless-regdb=y
-EOF
+    - name: Load custom feeds
+      run: |
+        [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf.default
+        chmod +x $DIY_P1_SH
+        cd openwrt
+        $GITHUB_WORKSPACE/$DIY_P1_SH
 
-# Wireless Drivers:
-cat >> .config <<EOF
-# CONFIG_PACKAGE_kmod-adm8211 is not set
-CONFIG_PACKAGE_kmod-ath=y
-CONFIG_ATH_USER_REGD=y
-# CONFIG_PACKAGE_ATH_DEBUG is not set
-CONFIG_PACKAGE_ATH_DFS=y
-# CONFIG_PACKAGE_kmod-ath10k is not set
-# CONFIG_PACKAGE_kmod-ath10k-ct is not set
-# CONFIG_PACKAGE_kmod-ath10k-ct-smallbuffers is not set
-# CONFIG_PACKAGE_kmod-ath5k is not set
-CONFIG_PACKAGE_kmod-ath6kl=y
-# CONFIG_PACKAGE_kmod-ath6kl-sdio is not set
-CONFIG_PACKAGE_kmod-ath6kl-usb=y
-# CONFIG_PACKAGE_kmod-ath9k is not set
-# CONFIG_PACKAGE_kmod-ath9k-htc is not set
-# CONFIG_PACKAGE_kmod-b43 is not set
-# CONFIG_PACKAGE_kmod-b43legacy is not set
-CONFIG_PACKAGE_kmod-brcmfmac=y
-CONFIG_BRCMFMAC_SDIO=y
-CONFIG_BRCMFMAC_USB=y
-# CONFIG_BRCMFMAC_PCIE is not set
-# CONFIG_PACKAGE_kmod-brcmsmac is not set
-CONFIG_PACKAGE_kmod-brcmutil=y
-# CONFIG_PACKAGE_BRCM80211_DEBUG is not set
-CONFIG_PACKAGE_kmod-carl9170=y
-CONFIG_PACKAGE_kmod-cfg80211=y
-# CONFIG_PACKAGE_CFG80211_TESTMODE is not set
-# CONFIG_PACKAGE_kmod-hermes is not set
-# CONFIG_PACKAGE_kmod-hermes-pci is not set
-# CONFIG_PACKAGE_kmod-hermes-plx is not set
-# CONFIG_PACKAGE_kmod-ipw2100 is not set
-# CONFIG_PACKAGE_kmod-ipw2200 is not set
-# CONFIG_PACKAGE_kmod-iwl-legacy is not set
-# CONFIG_PACKAGE_kmod-iwl3945 is not set
-# CONFIG_PACKAGE_kmod-iwl4965 is not set
-# CONFIG_PACKAGE_kmod-iwlwifi is not set
-# CONFIG_PACKAGE_kmod-lib80211 is not set
-# CONFIG_PACKAGE_kmod-libertas-sdio is not set
-# CONFIG_PACKAGE_kmod-libertas-spi is not set
-# CONFIG_PACKAGE_kmod-libertas-usb is not set
-# CONFIG_PACKAGE_kmod-libipw is not set
-CONFIG_PACKAGE_kmod-mac80211=y
-# CONFIG_PACKAGE_MAC80211_DEBUGFS is not set
-# CONFIG_PACKAGE_MAC80211_TRACING is not set
-CONFIG_PACKAGE_MAC80211_MESH=y
-# CONFIG_PACKAGE_kmod-mac80211-hwsim is not set
-# CONFIG_PACKAGE_kmod-mt76 is not set
-CONFIG_PACKAGE_kmod-mt7601u=y
-# CONFIG_PACKAGE_kmod-mt7603 is not set
-# CONFIG_PACKAGE_kmod-mt7615-firmware is not set
-# CONFIG_PACKAGE_kmod-mt7615e is not set
-# CONFIG_PACKAGE_kmod-mt7663-firmware-ap is not set
-# CONFIG_PACKAGE_kmod-mt7663-firmware-sta is not set
-# CONFIG_PACKAGE_kmod-mt7663s is not set
-# CONFIG_PACKAGE_kmod-mt7663u is not set
-# CONFIG_PACKAGE_kmod-mt76x0e is not set
-# CONFIG_PACKAGE_kmod-mt76x0u is not set
-# CONFIG_PACKAGE_kmod-mt76x2 is not set
-# CONFIG_PACKAGE_kmod-mt76x2u is not set
-# CONFIG_PACKAGE_kmod-mt7915e is not set
-# CONFIG_PACKAGE_kmod-mwifiex-pcie is not set
-# CONFIG_PACKAGE_kmod-mwifiex-sdio is not set
-# CONFIG_PACKAGE_kmod-mwl8k is not set
-# CONFIG_PACKAGE_kmod-net-prism54 is not set
-CONFIG_PACKAGE_kmod-net-rtl8192su=y
-# CONFIG_PACKAGE_kmod-owl-loader is not set
-CONFIG_PACKAGE_kmod-p54-common=y
-# CONFIG_PACKAGE_kmod-p54-pci is not set
-CONFIG_PACKAGE_kmod-p54-usb=y
-CONFIG_PACKAGE_kmod-rsi91x=y
-# CONFIG_PACKAGE_kmod-rsi91x-sdio is not set
-CONFIG_PACKAGE_kmod-rsi91x-usb=y
-# CONFIG_PACKAGE_kmod-rt2400-pci is not set
-# CONFIG_PACKAGE_kmod-rt2500-pci is not set
-CONFIG_PACKAGE_kmod-rt2500-usb=y
-CONFIG_PACKAGE_kmod-rt2800-lib=y
-# CONFIG_PACKAGE_kmod-rt2800-pci is not set
-CONFIG_PACKAGE_kmod-rt2800-usb=y
-CONFIG_PACKAGE_kmod-rt2x00-lib=y
-# CONFIG_PACKAGE_RT2X00_DEBUG is not set
-CONFIG_PACKAGE_kmod-rt2x00-usb=y
-# CONFIG_PACKAGE_kmod-rt61-pci is not set
-CONFIG_PACKAGE_kmod-rt73-usb=y
-CONFIG_PACKAGE_kmod-rtl8180=y
-CONFIG_PACKAGE_kmod-rtl8187=y
-CONFIG_PACKAGE_kmod-rtl8192c-common=y
-CONFIG_PACKAGE_kmod-rtl8192ce=y
-CONFIG_PACKAGE_kmod-rtl8192cu=y
-CONFIG_PACKAGE_kmod-rtl8192de=y
-CONFIG_PACKAGE_kmod-rtl8192se=y
-CONFIG_PACKAGE_kmod-rtl8723bs=y
-CONFIG_PACKAGE_kmod-rtl8812au-ct=y
-CONFIG_PACKAGE_kmod-rtl8821ae=y
-CONFIG_PACKAGE_kmod-rtl8xxxu=y
-CONFIG_PACKAGE_kmod-rtlwifi=y
-# CONFIG_PACKAGE_RTLWIFI_DEBUG is not set
-CONFIG_PACKAGE_kmod-rtlwifi-usb=y
-CONFIG_PACKAGE_kmod-rtw88=y
-# CONFIG_PACKAGE_kmod-wl12xx is not set
-# CONFIG_PACKAGE_kmod-wl18xx is not set
-# CONFIG_PACKAGE_kmod-wlcore is not set
-# CONFIG_PACKAGE_kmod-zd1211rw is not set
-EOF
+    - name: Update feeds
+      run: cd openwrt && ./scripts/feeds update -a
 
-# Filesystems:
-cat >> .config <<EOF
-# CONFIG_PACKAGE_kmod-fs-9p is not set
-# CONFIG_PACKAGE_kmod-fs-afs is not set
-# CONFIG_PACKAGE_kmod-fs-antfs is not set
-CONFIG_PACKAGE_kmod-fs-autofs4=y
-CONFIG_PACKAGE_kmod-fs-btrfs=y
-CONFIG_PACKAGE_kmod-fs-cifs=y
-# CONFIG_PACKAGE_kmod-fs-configfs is not set
-# CONFIG_PACKAGE_kmod-fs-cramfs is not set
-CONFIG_PACKAGE_kmod-fs-exfat=y
-CONFIG_PACKAGE_kmod-fs-exportfs=y
-CONFIG_PACKAGE_kmod-fs-ext4=y
-CONFIG_PACKAGE_kmod-fs-f2fs=y
-CONFIG_PACKAGE_kmod-fs-fscache=m
-CONFIG_PACKAGE_kmod-fs-hfs=y
-CONFIG_PACKAGE_kmod-fs-hfsplus=y
-CONFIG_PACKAGE_kmod-fs-isofs=m
-CONFIG_PACKAGE_kmod-fs-jfs=m
-# CONFIG_PACKAGE_kmod-fs-ksmbd is not set
-# CONFIG_PACKAGE_kmod-fs-minix is not set
-CONFIG_PACKAGE_kmod-fs-msdos=y
-CONFIG_PACKAGE_kmod-fs-nfs=y
-CONFIG_PACKAGE_kmod-fs-nfs-common=y
-CONFIG_PACKAGE_kmod-fs-nfs-common-rpcsec=y
-CONFIG_PACKAGE_kmod-fs-nfs-v3=y
-CONFIG_PACKAGE_kmod-fs-nfs-v4=y
-CONFIG_PACKAGE_kmod-fs-nfsd=y
-# CONFIG_PACKAGE_kmod-fs-ntfs is not set
-CONFIG_PACKAGE_kmod-fs-reiserfs=y
-CONFIG_PACKAGE_kmod-fs-squashfs=y
-# CONFIG_PACKAGE_kmod-fs-udf is not set
-CONFIG_PACKAGE_kmod-fs-vfat=y
-CONFIG_PACKAGE_kmod-fs-xfs=y
-CONFIG_PACKAGE_kmod-fuse=y
-EOF
+    - name: Install feeds
+      run: cd openwrt && ./scripts/feeds install -a
 
-# USB Support:
-cat >> .config <<EOF
-CONFIG_PACKAGE_kmod-usb-core=y
-CONFIG_PACKAGE_kmod-usb-dwc2=y
-CONFIG_PACKAGE_kmod-usb-dwc3=y
-CONFIG_PACKAGE_kmod-usb-ehci=y
-CONFIG_PACKAGE_kmod-usb-ohci=y
-CONFIG_PACKAGE_kmod-usb-ohci-pci=y
-CONFIG_PACKAGE_kmod-usb-hid=y
-CONFIG_PACKAGE_kmod-usb-net=y
-CONFIG_PACKAGE_kmod-usb-net-asix=y
-CONFIG_PACKAGE_kmod-usb-net-asix-ax88179=y
-CONFIG_PACKAGE_kmod-usb-net-cdc-eem=y
-CONFIG_PACKAGE_kmod-usb-net-cdc-ether=y
-CONFIG_PACKAGE_kmod-usb-net-cdc-mbim=y
-CONFIG_PACKAGE_kmod-usb-net-cdc-ncm=y
-CONFIG_PACKAGE_kmod-usb-net-cdc-subset=y
-CONFIG_PACKAGE_kmod-usb-net-dm9601-ether=y
-CONFIG_PACKAGE_kmod-usb-net-hso=y
-CONFIG_PACKAGE_kmod-usb-net-huawei-cdc-ncm=y
-CONFIG_PACKAGE_kmod-usb-net-ipheth=y
-CONFIG_PACKAGE_kmod-usb-net-kalmia=y
-CONFIG_PACKAGE_kmod-usb-net-kaweth=y
-CONFIG_PACKAGE_kmod-usb-net-mcs7830=y
-CONFIG_PACKAGE_kmod-usb-net-pegasus=y
-CONFIG_PACKAGE_kmod-usb-net-pl=y
-CONFIG_PACKAGE_kmod-usb-net-qmi-wwan=y
-CONFIG_PACKAGE_kmod-usb-net-rndis=y
-CONFIG_PACKAGE_kmod-usb-net-rtl8150=y
-CONFIG_PACKAGE_kmod-usb-net-rtl8152=y
-CONFIG_PACKAGE_kmod-usb-net-sierrawireless=y
-CONFIG_PACKAGE_kmod-usb-net-smsc95xx=y
-CONFIG_PACKAGE_kmod-usb-net-sr9700=y
-CONFIG_PACKAGE_kmod-usb-ohci=y
-CONFIG_PACKAGE_kmod-usb-printer=y
-CONFIG_PACKAGE_kmod-usb-serial=y
-CONFIG_PACKAGE_kmod-usb-serial-ch341=y
-CONFIG_PACKAGE_kmod-usb-serial-cp210x=y
-CONFIG_PACKAGE_kmod-usb-serial-option=y
-CONFIG_PACKAGE_kmod-usb-serial-pl2303=y
-CONFIG_PACKAGE_kmod-usb-serial-wwan=y
-CONFIG_PACKAGE_kmod-usb-storage=y
-CONFIG_PACKAGE_kmod-usb-storage-extras=y
-CONFIG_PACKAGE_kmod-usb-uhci=y
-CONFIG_PACKAGE_kmod-usb-wdm=y
-CONFIG_PACKAGE_kmod-usb2=y
-CONFIG_PACKAGE_kmod-usb2-pci=y
-CONFIG_PACKAGE_kmod-usb3=y
-CONFIG_PACKAGE_kmod-usbip=y
-CONFIG_PACKAGE_kmod-usbip-client=y
-CONFIG_PACKAGE_kmod-usb-storage-uas
-CONFIG_PACKAGE_kmod-usbip-server=y
-CONFIG_PACKAGE_kmod-usbmon=y
-EOF
+    - name: Load custom configuration
+      run: |
+        [ -e files ] && mv files openwrt/files
+        [ -e $CONFIG_FILE ] && mv $CONFIG_FILE openwrt/.config
+        chmod +x $DIY_P2_SH
+        cd openwrt
+        $GITHUB_WORKSPACE/$DIY_P2_SH
 
-# WWAN
-cat >> .config <<EOF
-# CONFIG_PACKAGE_adb-enablemodem is not set
-CONFIG_PACKAGE_comgt=y
-# CONFIG_PACKAGE_comgt-directip is not set
-CONFIG_PACKAGE_comgt-ncm=y
-# CONFIG_PACKAGE_umbim is not set
-CONFIG_PACKAGE_uqmi=y
-EOF
+    - name: Download package
+      id: package
+      run: |
+        cd openwrt
+        make defconfig
+        make download -j8
+        find dl -size -1024c -exec ls -l {} \;
+        find dl -size -1024c -exec rm -f {} \;
 
-# Network Devices
-cat >> .config <<EOF
-# CONFIG_PACKAGE_kmod-3c59x is not set
-# CONFIG_PACKAGE_kmod-8139cp is not set
-# CONFIG_PACKAGE_kmod-8139too is not set
-# CONFIG_PACKAGE_kmod-alx is not set
-# CONFIG_PACKAGE_kmod-atl1 is not set
-# CONFIG_PACKAGE_kmod-atl1c is not set
-# CONFIG_PACKAGE_kmod-atl1e is not set
-# CONFIG_PACKAGE_kmod-atl2 is not set
-# CONFIG_PACKAGE_kmod-b44 is not set
-# CONFIG_PACKAGE_kmod-be2net is not set
-# CONFIG_PACKAGE_kmod-bnx2 is not set
-# CONFIG_PACKAGE_kmod-bnx2x is not set
-# CONFIG_PACKAGE_kmod-dm9000 is not set
-CONFIG_PACKAGE_kmod-dummy=y
-# CONFIG_PACKAGE_kmod-e100 is not set
-# CONFIG_PACKAGE_kmod-e1000 is not set
-# CONFIG_PACKAGE_kmod-et131x is not set
-# CONFIG_PACKAGE_kmod-ethoc is not set
-# CONFIG_PACKAGE_kmod-forcedeth is not set
-# CONFIG_PACKAGE_kmod-hfcmulti is not set
-# CONFIG_PACKAGE_kmod-hfcpci is not set
-# CONFIG_PACKAGE_kmod-i40e is not set
-# CONFIG_PACKAGE_kmod-iavf is not set
-CONFIG_PACKAGE_kmod-ifb=y
-# CONFIG_PACKAGE_kmod-igb is not set
-# CONFIG_PACKAGE_kmod-ixgbe is not set
-# CONFIG_PACKAGE_kmod-ixgbevf is not set
-CONFIG_PACKAGE_kmod-libphy=y
-CONFIG_PACKAGE_kmod-macvlan=y
-# CONFIG_PACKAGE_kmod-mdio-gpio is not set
-CONFIG_PACKAGE_kmod-mii=y
-# CONFIG_PACKAGE_kmod-mlx4-core is not set
-# CONFIG_PACKAGE_kmod-mlx5-core is not set
-# CONFIG_PACKAGE_kmod-natsemi is not set
-# CONFIG_PACKAGE_kmod-ne2k-pci is not set
-# CONFIG_PACKAGE_kmod-niu is not set
-# CONFIG_PACKAGE_kmod-of-mdio is not set
-# CONFIG_PACKAGE_kmod-pcnet32 is not set
-# CONFIG_PACKAGE_kmod-phy-bcm84881 is not set
-# CONFIG_PACKAGE_kmod-phy-broadcom is not set
-# CONFIG_PACKAGE_kmod-phy-realtek is not set
-# CONFIG_PACKAGE_kmod-phylink is not set
-# CONFIG_PACKAGE_kmod-r6040 is not set
-# CONFIG_PACKAGE_kmod-r8125 is not set
-# CONFIG_PACKAGE_kmod-r8168 is not set
-# CONFIG_PACKAGE_kmod-r8169 is not set
-# CONFIG_PACKAGE_kmod-sfp is not set
-# CONFIG_PACKAGE_kmod-siit is not set
-# CONFIG_PACKAGE_kmod-sis190 is not set
-# CONFIG_PACKAGE_kmod-sis900 is not set
-# CONFIG_PACKAGE_kmod-skge is not set
-# CONFIG_PACKAGE_kmod-sky2 is not set
-# CONFIG_PACKAGE_kmod-solos-pci is not set
-# CONFIG_PACKAGE_kmod-spi-ks8995 is not set
-# CONFIG_PACKAGE_kmod-swconfig is not set
-# CONFIG_PACKAGE_kmod-switch-bcm53xx is not set
-# CONFIG_PACKAGE_kmod-switch-bcm53xx-mdio is not set
-# CONFIG_PACKAGE_kmod-switch-ip17xx is not set
-# CONFIG_PACKAGE_kmod-switch-mvsw61xx is not set
-# CONFIG_PACKAGE_kmod-switch-rtl8306 is not set
-# CONFIG_PACKAGE_kmod-switch-rtl8366-smi is not set
-# CONFIG_PACKAGE_kmod-switch-rtl8366rb is not set
-# CONFIG_PACKAGE_kmod-switch-rtl8366s is not set
-# CONFIG_PACKAGE_kmod-switch-rtl8367b is not set
-# CONFIG_PACKAGE_kmod-tg3 is not set
-# CONFIG_PACKAGE_kmod-tulip is not set
-# CONFIG_PACKAGE_kmod-via-rhine is not set
-# CONFIG_PACKAGE_kmod-via-velocity is not set
-# CONFIG_PACKAGE_kmod-vmxnet3 is not set
-EOF
+    - name: SSH connection to Actions @ Ctrl+C to enter, Ctrl+D to exit
+      uses: P3TERX/ssh2actions@main
+      if: (github.event.inputs.ssh == 'true' && github.event.inputs.ssh  != 'false') || contains(github.event.action, 'ssh')
+      env:
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
 
-# Protocols
-cat >> .config <<EOF
-CONFIG_PACKAGE_luci-proto-3g=y
-CONFIG_PACKAGE_luci-proto-bonding=y
-CONFIG_PACKAGE_luci-proto-ipip=y
-CONFIG_PACKAGE_luci-proto-ipv6=y
-CONFIG_PACKAGE_luci-proto-ncm=y
-CONFIG_PACKAGE_luci-proto-openconnect=y
-CONFIG_PACKAGE_luci-proto-ppp=y
-CONFIG_PACKAGE_luci-proto-qmi=y
-CONFIG_PACKAGE_luci-proto-relay=y
-CONFIG_PACKAGE_luci-proto-vpnc=y
-CONFIG_PACKAGE_luci-proto-wireguard=y
-EOF
+    - name: Compile the firmware
+      id: compile
+      run: |
+        cd openwrt
+        echo -e "$(nproc) thread compile"
+        make -j$(nproc) || make -j1 || make -j1 V=s
+        grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
+        [ -s DEVICE_NAME ] && echo "DEVICE_NAME=$(cat DEVICE_NAME)" >> $GITHUB_ENV
+        echo "FILE_DATE=$(date +"%Y.%m.%d.%H%M")" >> $GITHUB_ENV
+        echo "::set-output name=status::success"
 
-# Other Config info:
-cat >> .config <<EOF
-CONFIG_BRCMFMAC_SDIO=y
-CONFIG_LUCI_LANG_en=y
-EOF
+    - name: Check space usage
+      if: (!cancelled())
+      run: df -hT
 
-# LuCI-app:
-cat >> .config <<EOF
-CONFIG_PACKAGE_luci-app-accesscontrol=y
-CONFIG_PACKAGE_luci-app-adbyby-plus=y
-CONFIG_PACKAGE_luci-app-arpbind=y
-CONFIG_PACKAGE_luci-app-autoreboot=y
-CONFIG_PACKAGE_luci-app-cifs-mount=y
-CONFIG_PACKAGE_luci-app-cpufreq=y
-CONFIG_PACKAGE_luci-app-ddns=y
-CONFIG_PACKAGE_luci-app-docker=y
-CONFIG_PACKAGE_luci-app-diskman=y
-CONFIG_PACKAGE_luci-app-filetransfer=y
-CONFIG_PACKAGE_luci-app-firewall=y
-CONFIG_PACKAGE_luci-app-flowoffload=y
-CONFIG_PACKAGE_luci-app-ipsec-vpnd=y
-CONFIG_PACKAGE_luci-app-netdata=y
-CONFIG_PACKAGE_luci-app-nlbwmon=y
-CONFIG_PACKAGE_luci-app-openvpn=y
-CONFIG_PACKAGE_luci-app-openvpn-server=y
-CONFIG_PACKAGE_luci-app-ramfree=y
-CONFIG_PACKAGE_luci-app-rclone=y
-CONFIG_PACKAGE_luci-app-ssr-plus=y
-CONFIG_PACKAGE_luci-app-syncdial=y
-CONFIG_PACKAGE_luci-app-ttyd=y
-CONFIG_PACKAGE_luci-app-transmission=y
-CONFIG_PACKAGE_luci-app-usb-printer=y
-CONFIG_PACKAGE_luci-app-upnp=y
-CONFIG_PACKAGE_luci-app-vlmcsd=y
-CONFIG_PACKAGE_luci-app-vsftpd=y
-CONFIG_PACKAGE_luci-app-wol=y
-CONFIG_PACKAGE_luci-app-zerotier=y
-# CONFIG_PACKAGE_luci-app-acme is not set
-# CONFIG_PACKAGE_luci-app-adblock is not set
-# CONFIG_PACKAGE_luci-app-advanced-reboot is not set
-# CONFIG_PACKAGE_luci-app-ahcp is not set
-# CONFIG_PACKAGE_luci-app-airplay2 is not set
-# CONFIG_PACKAGE_luci-app-amule is not set
-# CONFIG_PACKAGE_luci-app-aria2 is not set
-# CONFIG_PACKAGE_luci-app-asterisk is not set
-# CONFIG_PACKAGE_luci-app-attendedsysupgrade is not set
-# CONFIG_PACKAGE_luci-app-baidupcs-web is not set
-# CONFIG_PACKAGE_luci-app-bcp38 is not set
-# CONFIG_PACKAGE_luci-app-bird1-ipv4 is not set
-# CONFIG_PACKAGE_luci-app-bird1-ipv6 is not set
-# CONFIG_PACKAGE_luci-app-bmx6 is not set
-# CONFIG_PACKAGE_luci-app-bmx7 is not set
-# CONFIG_PACKAGE_luci-app-cifsd is not set
-# CONFIG_PACKAGE_luci-app-cjdns is not set
-# CONFIG_PACKAGE_luci-app-clamav is not set
-# CONFIG_PACKAGE_luci-app-cshark is not set
-# CONFIG_PACKAGE_luci-app-diag-core is not set
-# CONFIG_PACKAGE_luci-app-dnscrypt-proxy is not set
-# CONFIG_PACKAGE_luci-app-dnsforwarder is not set
-# CONFIG_PACKAGE_luci-app-dump1090 is not set
-# CONFIG_PACKAGE_luci-app-dynapoint is not set
-# CONFIG_PACKAGE_luci-app-e2guardian is not set
-# CONFIG_PACKAGE_luci-app-familycloud is not set
-# CONFIG_PACKAGE_luci-app-freifunk-diagnostics is not set
-# CONFIG_PACKAGE_luci-app-freifunk-policyrouting is not set
-# CONFIG_PACKAGE_luci-app-freifunk-widgets is not set
-# CONFIG_PACKAGE_luci-app-frpc is not set
-# CONFIG_PACKAGE_luci-app-frps is not set
-# CONFIG_PACKAGE_luci-app-fwknopd is not set
-# CONFIG_PACKAGE_luci-app-jd-dailybonus is not set
-# CONFIG_PACKAGE_luci-app-guest-wifi is not set
-# CONFIG_PACKAGE_luci-app-haproxy-tcp is not set
-# CONFIG_PACKAGE_luci-app-hd-idle is not set
-# CONFIG_PACKAGE_luci-app-hnet is not set
-# CONFIG_PACKAGE_luci-app-kodexplorer is not set
-# CONFIG_PACKAGE_luci-app-lxc is not set
-# CONFIG_PACKAGE_luci-app-meshwizard is not set
-# CONFIG_PACKAGE_luci-app-minidlna is not set
-# CONFIG_PACKAGE_luci-app-mjpg-streamer is not set
-# CONFIG_PACKAGE_luci-app-mtwifi is not set
-# CONFIG_PACKAGE_luci-app-music-remote-center is not set
-# CONFIG_PACKAGE_luci-app-mwan3 is not set
-# CONFIG_PACKAGE_luci-app-mwan3helper is not set
-# CONFIG_PACKAGE_luci-app-n2n_v2 is not set
-# CONFIG_PACKAGE_luci-app-nfs is not set
-# CONFIG_PACKAGE_luci-app-nft-qos is not set
-# CONFIG_PACKAGE_luci-app-noddos is not set
-# CONFIG_PACKAGE_luci-app-nps is not set
-# CONFIG_PACKAGE_luci-app-ntpc is not set
-# CONFIG_PACKAGE_luci-app-ocserv is not set
-# CONFIG_PACKAGE_luci-app-olsr is not set
-# CONFIG_PACKAGE_luci-app-olsr-services is not set
-# CONFIG_PACKAGE_luci-app-olsr-viz is not set
-# CONFIG_PACKAGE_luci-app-p910nd is not set
-# CONFIG_PACKAGE_luci-app-pagekitec is not set
-# CONFIG_PACKAGE_luci-app-polipo is not set
-# CONFIG_PACKAGE_luci-app-pppoe-relay is not set
-# CONFIG_PACKAGE_luci-app-privoxy is not set
-# CONFIG_PACKAGE_luci-app-ps3netsrv is not set
-# CONFIG_PACKAGE_luci-app-qbittorrent is not set
-# CONFIG_PACKAGE_luci-app-qos is not set
-# CONFIG_PACKAGE_luci-app-radicale is not set
-# CONFIG_PACKAGE_luci-app-rp-pppoe-server is not set
-# CONFIG_PACKAGE_luci-app-samba4 is not set
-# CONFIG_PACKAGE_luci-app-sfe is not set
-# CONFIG_PACKAGE_luci-app-shadowsocks-libev is not set
-# CONFIG_PACKAGE_luci-app-shairplay is not set
-# CONFIG_PACKAGE_luci-app-siitwizard is not set
-# CONFIG_PACKAGE_luci-app-simple-adblock is not set
-# CONFIG_PACKAGE_luci-app-softethervpn is not set
-# CONFIG_PACKAGE_luci-app-splash is not set
-# CONFIG_PACKAGE_luci-app-sqm is not set
-# CONFIG_PACKAGE_luci-app-squid is not set
-# CONFIG_PACKAGE_luci-app-ssrserver-python is not set
-# CONFIG_PACKAGE_luci-app-statistics is not set
-# CONFIG_PACKAGE_luci-app-tinyproxy is not set
-# CONFIG_PACKAGE_luci-app-travelmate is not set
-# CONFIG_PACKAGE_luci-app-udpxy is not set
-# CONFIG_PACKAGE_luci-app-uhttpd is not set
-# CONFIG_PACKAGE_luci-app-unbound is not set
-# CONFIG_PACKAGE_luci-app-unblockmusic is not set
-# CONFIG_PACKAGE_luci-app-uugamebooster is not set
-# CONFIG_PACKAGE_luci-app-v2ray-server is not set
-# CONFIG_PACKAGE_luci-app-verysync is not set
-# CONFIG_PACKAGE_luci-app-vnstat is not set
-# CONFIG_PACKAGE_luci-app-vpnbypass is not set
-# CONFIG_PACKAGE_luci-app-watchcat is not set
-# CONFIG_PACKAGE_luci-app-webadmin is not set
-# CONFIG_PACKAGE_luci-app-wifischedule is not set
-# CONFIG_PACKAGE_luci-app-wireguard is not set
-# CONFIG_PACKAGE_luci-app-wrtbwmon is not set
-# CONFIG_PACKAGE_luci-app-xlnetacc is not set
-# ==========add from diy-part2.sh（Mydiy-luci-app-and-theme）==========
-# CONFIG_PACKAGE_luci-app-smartdns is not set
-EOF
+    - name: Upload OpenWrt bin directory to Actions
+      uses: actions/upload-artifact@v2
+      if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
+      with:
+        name: openwrt_bin_armvirt_64_${{ env.FILE_DATE }}
+        path: openwrt/bin
+        retention-days: ${{ env.RECENT_LASTEST }}
+        if-no-files-found: ignore
 
-# LuCI-theme:
-cat >> .config <<EOF
-CONFIG_PACKAGE_luci-theme-argon=y
-# ==========add from diy-part2.sh（Mydiy-luci-app-and-theme）==========
-# CONFIG_PACKAGE_luci-theme-atmaterial=y
-EOF
+    - name: Organize armvirt files
+      id: organize
+      if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
+      run: |
+        cd openwrt/bin/targets/*/*
+        rm -rf packages
+        echo "TMPFILEPATH=$PWD" >> $GITHUB_ENV
+        echo "::set-output name=status::success"
 
-# Software:
-cat >> .config <<EOF
-CONFIG_PACKAGE_aircrack-ng=m
-CONFIG_PACKAGE_apcupsd=y
-CONFIG_PACKAGE_apcupsd-cgi=y
-CONFIG_PACKAGE_automount=y
-CONFIG_PACKAGE_autosamba=y
-CONFIG_PACKAGE_bash=y
-CONFIG_PACKAGE_base-files=y
-CONFIG_PACKAGE_blkid=y
-CONFIG_PACKAGE_blockd=y
-CONFIG_PACKAGE_block-mount=y
-CONFIG_PACKAGE_btrfs-progs=y
-CONFIG_PACKAGE_ca-bundle=y
-CONFIG_PACKAGE_curl=y
-CONFIG_PACKAGE_cfdisk=y
-CONFIG_PACKAGE_docker-compose=y
-CONFIG_PACKAGE_dumpe2fs=y
-CONFIG_PACKAGE_dosfstools=y
-CONFIG_PACKAGE_ethtool=y
-CONFIG_PACKAGE_e2freefrag=y
-CONFIG_PACKAGE_e2fsprogs=y
-CONFIG_PACKAGE_fdisk=y
-CONFIG_PACKAGE_file=y
-CONFIG_PACKAGE_gzip=y
-CONFIG_PACKAGE_gawk=y
-CONFIG_PACKAGE_getopt=y
-CONFIG_PACKAGE_htop=y
-CONFIG_PACKAGE_iconv=y
-CONFIG_PACKAGE_iwinfo=y
-CONFIG_PACKAGE_jshn=y
-CONFIG_PACKAGE_iftop=y
-CONFIG_PACKAGE_iperf3=y
-CONFIG_PACKAGE_libpci=y
-CONFIG_PACKAGE_libpcre=y
-CONFIG_PACKAGE_libpcre16=y
-CONFIG_PACKAGE_libpcre2=y
-CONFIG_PACKAGE_libpcre2-16=y
-CONFIG_PACKAGE_libpcre2-32=y
-CONFIG_PACKAGE_libpng=y
-CONFIG_PACKAGE_libpopt=y
-CONFIG_PACKAGE_libprotobuf-c=y
-CONFIG_PACKAGE_libqmi=y
-CONFIG_PACKAGE_libreadline=y
-CONFIG_PACKAGE_libseccomp=y
-CONFIG_PACKAGE_libsmartcols=y
-CONFIG_PACKAGE_libsndfile=y
-CONFIG_PACKAGE_libsoc=y
-CONFIG_PACKAGE_libsocks=y
-CONFIG_PACKAGE_libsodium=y
-CONFIG_PACKAGE_less-wide=y
-CONFIG_PACKAGE_libjson-script=y
-CONFIG_PACKAGE_libnetwork=y
-CONFIG_PACKAGE_lrzsz=y
-CONFIG_PACKAGE_lsof=y
-CONFIG_PACKAGE_lm-sensors=y
-CONFIG_PACKAGE_losetup=y
-CONFIG_PACKAGE_lsblk=y
-CONFIG_PACKAGE_lscpu=y
-CONFIG_PACKAGE_mount-utils=y
-CONFIG_PACKAGE_nano=y
-CONFIG_PACKAGE_netdata=y
-CONFIG_PACKAGE_ntfs-3g=y
-CONFIG_PACKAGE_openssl-util=y
-CONFIG_PACKAGE_parted=y
-CONFIG_PACKAGE_pv=y
-CONFIG_PACKAGE_qmi-utils=y
-CONFIG_PACKAGE_rclone=y
-CONFIG_PACKAGE_runc=y
-CONFIG_PACKAGE_resize2fs=y
-CONFIG_PACKAGE_sysstat=y
-CONFIG_PACKAGE_screen=y
-CONFIG_PACKAGE_shellsync=y
-CONFIG_PACKAGE_smartmontools=y
-CONFIG_PACKAGE_smartmontools-drivedb=y
-CONFIG_PACKAGE_tree=y
-CONFIG_PACKAGE_tune2fs=y
-CONFIG_PACKAGE_tar=y
-CONFIG_PACKAGE_TAR_POSIX_ACL=y
-CONFIG_PACKAGE_TAR_XATTR=y
-CONFIG_PACKAGE_TAR_BZIP2=y
-CONFIG_PACKAGE_TAR_GZIP=y
-CONFIG_PACKAGE_TAR_XZ=y
-CONFIG_PACKAGE_TAR_ZSTD=y
-CONFIG_PACKAGE_tini=y
-CONFIG_PACKAGE_unzip=y
-CONFIG_PACKAGE_usb-modeswitch=y
-CONFIG_PACKAGE_usbutils=y
-CONFIG_PACKAGE_usbreset=y
-CONFIG_PACKAGE_uuid=y
-CONFIG_PACKAGE_uuidgen=y
-CONFIG_PACKAGE_vim-fuller=y
-CONFIG_PACKAGE_vsftpd-alt=y
-CONFIG_PACKAGE_wireless-tools=y
-CONFIG_PACKAGE_whereis=y
-CONFIG_PACKAGE_wget=y
-CONFIG_PACKAGE_wpad=y
-CONFIG_PACKAGE_wwan=y
-CONFIG_PACKAGE_xz-utils=y
-CONFIG_VSFTPD_USE_UCI_SCRIPTS=y
-CONFIG_DOCKER_STO_EXT4=y
-CONFIG_DOCKER_STO_BTRFS=y
-CONFIG_RUNC_SECCOMP=y
-CONFIG_STRACE_NONE=y
-CONFIG_PCAP_HAS_USB=y
-CONFIG_PCAP_HAS_NETFILTER=y
-EOF
+    - name: Upload armvirt directory to Actions
+      uses: actions/upload-artifact@v2
+      if: steps.organize.outputs.status == 'success' && env.UPLOAD_FIRMWARE == 'true' && !cancelled()
+      with:
+        name: openwrt_armvirt_64_${{ env.FILE_DATE }}
+        path: ${{ env.TMPFILEPATH }}
+        retention-days: ${{ env.RECENT_LASTEST }}
+        if-no-files-found: ignore
+
+    - name: Build OpenWrt firmware
+      if: steps.organize.outputs.status == 'success' && env.UPLOAD_FIRMWARE == 'true' && !cancelled()
+      id: build
+      run: |
+        [ -d openwrt-armvirt ] || mkdir -p openwrt-armvirt
+        cp -f openwrt/bin/targets/*/*/*.tar.gz openwrt-armvirt/ && sync
+        sudo rm -rf openwrt && sync
+        sudo rm -rf /workdir && sync
+        sudo chmod +x make
+        sudo ./make -d -b s905x3_s905x2_s905x_s922x_n1_octopus -k 5.9.16_5.4.98
+        cd out/ && sudo gzip *.img
+        cp -f ../openwrt-armvirt/*.tar.gz . && sync
+        echo "FILEPATH=$PWD" >> $GITHUB_ENV
+        echo "::set-output name=status::success"
+
+    - name: Upload artifact to Actions
+      uses: kittaakos/upload-artifact-as-is@master
+      if: steps.build.outputs.status == 'success' && env.UPLOAD_FIRMWARE == 'true' && !cancelled()
+      with:
+        path: ${{ env.FILEPATH }}/
+
+    - name: Upload OpenWrt Firmware to cowtransfer
+      if: steps.build.outputs.status == 'success' && env.UPLOAD_COWTRANSFER == 'true' && !cancelled()
+      run: |
+        curl -fsSL git.io/file-transfer | sh
+        ./transfer cow --block 2621440 -s -p 64 --no-progress ${{ env.FILEPATH }}/{openwrt_s9xxx_*,openwrt_n1_*} 2>&1 | tee cowtransfer.log
+        echo "COW_URL=$(cat cowtransfer.log | grep https | cut -f3 -d" ")" >> $GITHUB_ENV
+
+    - name: Upload OpenWrt Firmware to WeTransfer
+      if: steps.build.outputs.status == 'success' && env.UPLOAD_WETRANSFER == 'true' && !cancelled()
+      run: |
+        curl -fsSL git.io/file-transfer | sh
+        ./transfer wet -s -p 16 --no-progress ${{ env.FILEPATH }}/{openwrt_s9xxx_*,openwrt_n1_*} 2>&1 | tee wetransfer.log
+        echo "WET_URL=$(cat wetransfer.log | grep https | cut -f3 -d" ")" >> $GITHUB_ENV
+
+    - name: Upload OpenWrt Firmware to Release
+      uses: softprops/action-gh-release@v1
+      if: steps.build.outputs.status == 'success' && env.UPLOAD_RELEASE == 'true' && !cancelled()
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: openwrt_s9xxx_${{ env.FILE_DATE }}
+        files: ${{ env.FILEPATH }}/*
+        body: |
+          This is OpenWrt firmware for S9xxx-Boxs
+          * Firmware information
+          Default IP: 192.168.1.1
+          Default username: root
+          Default password: password
+          Default WIFI name: OpenWrt
+          Default WIFI password: none
+          Install command: s9xxx-install.sh
+          Upgrade command: s9xxx-update.sh
+
+    - name: Delete older releases
+      uses: dev-drprasad/delete-older-releases@master
+      if: env.DELETE_RELEASE == 'true'
+      with:
+        keep_latest: ${{ env.KEEP_MININUM_RELEASE }}
+        delete_tags: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Delete older workflow runs and artifacts
+      uses: Mattraks/delete-workflow-runs@main
+      if: env.DELETE_ARTIFACTS == 'true'
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        repository: ${{ github.repository }}
+        retain_days: ${{ env.KEEP_DAY }}
+        keep_minimum_runs: ${{ env.KEEP_MININUM_RUNS }}
